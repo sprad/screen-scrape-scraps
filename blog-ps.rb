@@ -4,8 +4,6 @@ require 'rubygems'
 require 'builder'
 require 'hpricot'
 
-#TODO - Replace with Mechanize
-
 blog_entries = {}
 url = 'http://blog.platinumsolutions.com'
 parsing_path = '/'
