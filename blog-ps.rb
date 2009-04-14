@@ -1,96 +1,68 @@
-require 'date'
-require 'open-uri'
 require 'rubygems'
-require 'builder'
-require 'hpricot'
-
-blog_entries = {}
-url = 'http://blog.platinumsolutions.com'
-parsing_path = '/'
+require 'scrubyt'
+require 'date'
 
 class BlogEntry
-	attr_accessor :id, :title, :date, :num_of_reads
+  attr_accessor :url, :title, :date, :num_of_reads
+  
+  def initialize(blog_hash)
+    @url = blog_hash[:url]
+    @title = blog_hash[:blog_title]
+    @date = Date.parse(blog_hash[:blog_date])
+    @num_of_reads = blog_hash[:number_of_reads].to_i
+  end 
 end
-
+ 
 class BlogEntryAuthor
-	attr_accessor :id, :name, :entries
-
-	def initialize(id, name)
-		@id = id
-		@name = name
-		@entries = []
-	end
-
-	def num_of_entries
-		@entries.size
-	end
-
-	def total_reads
-		@entries.inject(0){|sum,item| sum + item.num_of_reads.to_i}
-	end
-
-	def reads_per_entry
-		total_reads / num_of_entries
-	end
-end
-
-parse_entries = Proc.new do |html, year|
-	#puts "parsing page: #{url + parsing_path}"
-
-	html.search("div.entry-head").each do |header|
-		entry_html = Hpricot(header.inner_html)
-		next unless entry_html.at('abbr') #move on if there is no author
-
-		be_date = Date.parse(entry_html.at('abbr').inner_html.split(' ')[1])
-
-		if (!year || be_date > Date.new(y=year.to_i) && be_date < Date.new(y=year.to_i+1))			
-			be = BlogEntry.new
-			be.id = entry_html.at('a')['href'].split('/')[2]
-			be.title = entry_html.at('a').inner_html
-			be.date = be_date
-			be.num_of_reads = entry_html.at("span.statistics_counter").inner_html.split(' ')[0]
-			author_id = entry_html.at('li.blog_usernames_blog/a')['href'].split('/')[2]
-			author_name = entry_html.at('li.blog_usernames_blog/a').inner_html.split('&')[0]        
-
-			blog_entries[author_id] = BlogEntryAuthor.new(author_id, author_name) unless blog_entries[author_id]
-			blog_entries[author_id].entries << be
-		end
+  attr_accessor :id, :name, :entries
+ 
+  def initialize(blog_hash)
+    @id = blog_hash[:blog_author_id]
+    @name = blog_hash[:blog_author]
+    @entries = []
+  end
+ 
+  def num_of_entries
+    @entries.size
+  end
+ 
+  def total_reads
+    @entries.inject(0){|sum,item| sum + item.num_of_reads}
+  end
+ 
+  def reads_per_entry
+    total_reads / num_of_entries
   end
 end
 
-def find_path(html)    
-	path = nil
-	html.search('div.pager/a').each do |link|
-		  path = link['href'] if link['title'] == 'Go to next page'
-	end	
-	path
+blog_url = "http://blog.platinumsolutions.com"
+
+blog_data = Scrubyt::Extractor.define do
+  fetch blog_url
+
+  blog_entry '//div[@class="entry-head"]' do
+  	blog_title "//h2/a"
+		blog_url "//h2/a/@href", :format_output => lambda {|x| blog_url + x }
+  	blog_date "//span/abbr", :format_output => lambda {|x| x.split(' ')[1]}
+  	blog_author "//ul/li/a[@class='blog_usernames_blog']", :format_output => lambda {|x| x.split('&')[0]}
+  	blog_author_id "//ul/li/a[@class='blog_usernames_blog']/@href", :format_output => lambda {|x| x.split('/')[2]}
+  	number_of_reads "//span[@class='statistics_counter']", :format_output => lambda {|x| x.split(' ')[0]}
+  end
+  
+	next_page "//a[@title='Go to next page']" #, :limit => 1
 end
 
-while parsing_path
-	doc = open("#{url + parsing_path}") { |f| Hpricot(f) }        
-	parse_entries.call(doc, ARGV[0])
-	parsing_path = find_path(doc)
+blog_entries = {}
+
+blog_data.to_hash.each do |bh|
+    next unless bh[:blog_author_id] #move on if there is no author 		
+ 	  blog_entries[bh[:blog_author_id]] = BlogEntryAuthor.new(bh) unless blog_entries[bh[:blog_author_id]]
+    blog_entries[bh[:blog_author_id]].entries << BlogEntry.new(bh)
 end
 
-be_sorted_by_rpe = blog_entries.sort{|a,b| b[1].reads_per_entry <=> a[1].reads_per_entry}
 be_sorted_by_total = blog_entries.sort{|a,b| b[1].num_of_entries <=> a[1].num_of_entries}
+#be_sorted_by_rpe = blog_entries.sort{|a,b| b[1].reads_per_entry <=> a[1].reads_per_entry}
 
-xml = Builder::XmlMarkup.new( :target => $stdout, :indent => 2 )
-
-xml.table do 
-	xml.tr do
-		xml.th('Name')
-		xml.th('Reads/Entry')
-		xml.th('Total Reads')
-		xml.th('Number of Entries')						
-	end
-
-	be_sorted_by_rpe.each do | k, v |
-		xml.tr do 
-			xml.td(v.name) 
-		  xml.td(v.reads_per_entry) 
-		  xml.td(v.total_reads)
-		  xml.td(v.num_of_entries)
-		end
-	end
-end
+be_sorted_by_total.each { |k, author|
+	puts "#{author.name}: #{author.num_of_entries}|#{author.total_reads}|#{author.reads_per_entry}"
+}
