@@ -1,5 +1,5 @@
 require 'rubygems'
-require "#{File.dirname(__FILE__)}/../scrubyt/lib/scrubyt.rb"
+require 'scrubyt'
 
 blog_url = "http://blog.platinumsolutions.com"
 
